@@ -1,0 +1,5 @@
+// TODOS:
+// - CONSIDER: add metrics for DB connections, etc.?
+// - CONSIDER: anything special to add for new relic or similar monitoring
+// - add call to retrieve the list of queries OR alternatively, consider moving the queries defined into the resource store under known IDs (similar to journal reader and scheduler pattern)
+// - load testing
