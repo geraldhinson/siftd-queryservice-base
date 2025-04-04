@@ -11,8 +11,8 @@ github.com/frankban/quicktest v1.14.6 h1:7Xjx+VpznH+oBnejlPUj8oUpdxnVs4f8XU8WnHk
 github.com/frankban/quicktest v1.14.6/go.mod h1:4ptaffx2x8+WTWXmUCuVU6aPUX1/Mz7zb5vbUoiM6w0=
 github.com/fsnotify/fsnotify v1.8.0 h1:dAwr6QBTBZIkG8roQaJjGof0pp0EeF+tNV7YBP3F/8M=
 github.com/fsnotify/fsnotify v1.8.0/go.mod h1:8jBTzvmWwFyi3Pb8djgCCO5IBqzKJ/Jwo8TRcHyHii0=
-github.com/geraldhinson/siftd-base v1.23.6 h1:soP6Vy9RsNqRkX1oQEOCPx6xVfpDxpoyUz7/+vsoSoo=
-github.com/geraldhinson/siftd-base v1.23.6/go.mod h1:ak4MhsvnW2f8aQCjy+4DETxIbjrkjvZnFUZPSrRBVHI=
+github.com/geraldhinson/siftd-base v1.24.0 h1:SWyvubowXTlDgI+D7zufJesfUaf7a/qryMoN3LN0YOA=
+github.com/geraldhinson/siftd-base v1.24.0/go.mod h1:6zPGbFPLuI6pV4QX+NU6vvKxTYxKj8Yya13nfJizEB8=
 github.com/go-kit/log v0.1.0/go.mod h1:zbhenjAZHb184qTLMA9ZjW7ThYL0H2mk7Q6pNt4vbaY=
 github.com/go-logfmt/logfmt v0.5.0/go.mod h1:wCYkCAKZfumFQihp8CzCvQ3paCTfi41vtzG1KdI/P7A=
 github.com/go-stack/stack v1.8.0/go.mod h1:v0f6uXyyMGvRgIKkXu+yp6POWl0qKG85gN/melR3HDY=
