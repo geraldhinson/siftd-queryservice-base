@@ -1,8 +1,6 @@
 module github.com/geraldhinson/siftd-queryservice-base
 
-go 1.24.0
-
-toolchain go1.24.2
+go 1.24.2
 
 require (
 	github.com/jackc/pgtype v1.14.4
@@ -11,7 +9,7 @@ require (
 
 require (
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
-	github.com/golang-jwt/jwt/v5 v5.2.1 // indirect
+	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/jackc/pgio v1.0.0 // indirect
@@ -38,4 +36,4 @@ require (
 
 require github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 
-require github.com/geraldhinson/siftd-base v1.24.0
+require github.com/geraldhinson/siftd-base v1.24.1
