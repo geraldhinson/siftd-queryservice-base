@@ -15,40 +15,47 @@ import (
 	"github.com/geraldhinson/siftd-queryservice-base/pkg/implementations"
 )
 
-type HealthCheckRoutesHelper struct {
+type HealthCheckRouter struct {
 	*serviceBase.ServiceBase
 	store *implementations.BaseQueryStore
 }
 
-func NewHealthCheckRoutesHelper(serviceBase *serviceBase.ServiceBase, authModel *security.AuthModel) *HealthCheckRoutesHelper {
+func NewHealthCheckRouter(
+	service *serviceBase.ServiceBase,
+	realm string,
+	authType security.AuthTypes,
+	timeout security.AuthTimeout,
+	approved []string) *HealthCheckRouter {
 
-	store, err := implementations.NewPublicQueryStore(serviceBase.Configuration, serviceBase.Logger)
+	store, err := implementations.NewPublicQueryStore(service.Configuration, service.Logger)
 	if err != nil {
-		serviceBase.Logger.Fatalf("Failed to initialize PublicQueryStore: %v", err)
+		service.Logger.Fatalf("Failed to initialize default HealthCheckRouter for query service: %v", err)
 		return nil
 	}
 
-	HealthCheckRoutesHelper := &HealthCheckRoutesHelper{
-		ServiceBase: serviceBase,
+	authModel, err := service.NewAuthModel(realm, authType, timeout, approved)
+	if err != nil {
+		service.Logger.Fatalf("Failed to initialize AuthModelUsers in default HealthCheckRouter for query service: %v", err)
+		return nil
+	}
+
+	healthCheckRouter := &HealthCheckRouter{
+		ServiceBase: service,
 		store:       store,
 	}
-	HealthCheckRoutesHelper.setupRoutes(authModel)
-	if HealthCheckRoutesHelper.Router == nil {
-		serviceBase.Logger.Println("Error creating HealthCheckRoutesHelper")
-		return nil
-	}
+	healthCheckRouter.setupRoutes(authModel)
 
-	return HealthCheckRoutesHelper
+	return healthCheckRouter
 }
 
-func (h *HealthCheckRoutesHelper) setupRoutes(authModel *security.AuthModel) {
+func (h *HealthCheckRouter) setupRoutes(authModel *security.AuthModel) {
 
 	var routeString = "/v1/health"
 	h.RegisterRoute(constants.HTTP_GET, routeString, authModel, h.GetHealthStandalone)
 
 }
 
-func (h *HealthCheckRoutesHelper) GetHealthStandalone(w http.ResponseWriter, r *http.Request) {
+func (h *HealthCheckRouter) GetHealthStandalone(w http.ResponseWriter, r *http.Request) {
 	var health = serviceBase.HealthStatus{
 		Status:           constants.HEALTH_STATUS_HEALTHY,
 		DependencyStatus: map[string]string{}}
@@ -76,7 +83,7 @@ func (h *HealthCheckRoutesHelper) GetHealthStandalone(w http.ResponseWriter, r *
 	h.WriteHttpOK(w, jsonResults)
 }
 
-func (h *HealthCheckRoutesHelper) GetListOfCalledServices(health *serviceBase.HealthStatus) {
+func (h *HealthCheckRouter) GetListOfCalledServices(health *serviceBase.HealthStatus) {
 	// TODO: implement this method
 	calledServices := h.Configuration.GetString(constants.CALLED_SERVICES)
 

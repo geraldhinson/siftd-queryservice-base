@@ -15,37 +15,49 @@ import (
 	"github.com/gorilla/mux"
 )
 
-type PublicQueriesRoutesHelper struct {
+type PublicQueriesRouter struct {
 	*serviceBase.ServiceBase
 	store *implementations.BaseQueryStore
 }
 
-func NewPublicQueriesRoutesHelper(queryService *serviceBase.ServiceBase, authModel *security.AuthModel) *PublicQueriesRoutesHelper {
-	path := queryService.Configuration.GetString("RESDIR_PATH")
+func NewPublicQueriesRouter(
+	service *serviceBase.ServiceBase,
+	realm string,
+	authType security.AuthTypes,
+	timeout security.AuthTimeout,
+	approved []string) *PublicQueriesRouter {
+
+	path := service.Configuration.GetString("RESDIR_PATH")
 
 	if _, err := os.Stat(path + models.PUBLIC_QUERIES_FILE); errors.Is(err, os.ErrNotExist) {
 		// file does not exist
-		queryService.Logger.Fatalf("Public queries file <%s> does not exist. Shutting down.", path+models.PUBLIC_QUERIES_FILE)
+		service.Logger.Fatalf("Public queries file <%s> does not exist. Shutting down.", path+models.PUBLIC_QUERIES_FILE)
 		return nil
 	}
 
-	store, err := implementations.NewPublicQueryStore(queryService.Configuration, queryService.Logger)
+	store, err := implementations.NewPublicQueryStore(service.Configuration, service.Logger)
 	if err != nil {
-		queryService.Logger.Fatalf("Failed to initialize PublicQueryStore: %v", err)
+		service.Logger.Fatalf("Failed to initialize PublicQueryStore in query service: %v", err)
 		return nil
 	}
 
-	PublicQueriesRoutesHelper := &PublicQueriesRoutesHelper{
-		ServiceBase: queryService,
+	authModel, err := service.NewAuthModel(realm, authType, timeout, approved)
+	if err != nil {
+		service.Logger.Fatalf("Failed to initialize AuthModel in default PublicQueriesRouter for query service: %v", err)
+		return nil
+	}
+
+	publicQueriesRouter := &PublicQueriesRouter{
+		ServiceBase: service,
 		store:       store,
 	}
 
-	PublicQueriesRoutesHelper.SetupRoutes(authModel)
+	publicQueriesRouter.setupRoutes(authModel)
 
-	return PublicQueriesRoutesHelper
+	return publicQueriesRouter
 }
 
-func (s *PublicQueriesRoutesHelper) SetupRoutes(authModel *security.AuthModel) {
+func (s *PublicQueriesRouter) setupRoutes(authModel *security.AuthModel) {
 	s.Logger.Infof("-----------------------------------------------")
 	s.Logger.Infof("Unsecured (public) routes in this query service are:")
 
@@ -53,7 +65,7 @@ func (s *PublicQueriesRoutesHelper) SetupRoutes(authModel *security.AuthModel) {
 	s.RegisterRoute(constants.HTTP_GET, routeString, authModel, s.handlePublicQueries)
 }
 
-func (s *PublicQueriesRoutesHelper) handlePublicQueries(w http.ResponseWriter, r *http.Request) {
+func (s *PublicQueriesRouter) handlePublicQueries(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)

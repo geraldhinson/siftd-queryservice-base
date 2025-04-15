@@ -15,36 +15,57 @@ import (
 	"github.com/gorilla/mux"
 )
 
-type SecuredQueriesRoutesHelper struct {
+type SecuredQueriesRouter struct {
 	*serviceBase.ServiceBase
 	store *implementations.BaseQueryStore
 }
 
-func NewSecuredQueriesRoutesHelper(queryService *serviceBase.ServiceBase, authModelIdentity *security.AuthModel, authModelNoIdentity *security.AuthModel) *SecuredQueriesRoutesHelper {
-	path := queryService.Configuration.GetString("RESDIR_PATH")
+func NewSecuredQueriesRouter(
+	service *serviceBase.ServiceBase,
+	noIdentityProvidedRealm string,
+	noIdentityProvidedAuthType security.AuthTypes,
+	noIdentityProvidedTimeout security.AuthTimeout,
+	noIdentityProvidedApproved []string,
+	identityProvidedRealm string,
+	identityProvidedAuthType security.AuthTypes,
+	identityProvidedTimeout security.AuthTimeout,
+	identityProvidedApproved []string) *SecuredQueriesRouter {
+	path := service.Configuration.GetString("RESDIR_PATH")
 
 	if _, err := os.Stat(path + models.QUERIES_FILE); errors.Is(err, os.ErrNotExist) {
 		// file does not exist
-		queryService.Logger.Fatalf("Public queries file <%s> does not exist. Shutting down.", path+models.QUERIES_FILE)
+		service.Logger.Fatalf("Public queries file <%s> does not exist. Shutting down.", path+models.QUERIES_FILE)
 		return nil
 	}
 
-	store, err := implementations.NewPrivateQueryStore(queryService.Configuration, queryService.Logger)
+	store, err := implementations.NewPrivateQueryStore(service.Configuration, service.Logger)
 	if err != nil {
-		queryService.Logger.Fatalf("Failed to initialize PrivateQueryStore: %v", err)
+		service.Logger.Fatalf("Failed to initialize PrivateQueryStore: %v", err)
 		return nil
 	}
 
-	SecuredQueriesRoutesHelper := &SecuredQueriesRoutesHelper{
-		ServiceBase: queryService,
+	authModelIdentity, err := service.NewAuthModel(noIdentityProvidedRealm, noIdentityProvidedAuthType, noIdentityProvidedTimeout, noIdentityProvidedApproved)
+	if err != nil {
+		service.Logger.Fatalf("Failed to initialize AuthModel in default PublicQueriesRouter for query service: %v", err)
+		return nil
+	}
+
+	authModelNoIdentity, err := service.NewAuthModel(identityProvidedRealm, identityProvidedAuthType, identityProvidedTimeout, identityProvidedApproved)
+	if err != nil {
+		service.Logger.Fatalf("Failed to initialize AuthModel in default PublicQueriesRouter for query service: %v", err)
+		return nil
+	}
+
+	securedQueriesRouter := &SecuredQueriesRouter{
+		ServiceBase: service,
 		store:       store,
 	}
-	SecuredQueriesRoutesHelper.SetupRoutes(authModelIdentity, authModelNoIdentity)
+	securedQueriesRouter.setupRoutes(authModelIdentity, authModelNoIdentity)
 
-	return SecuredQueriesRoutesHelper
+	return securedQueriesRouter
 }
 
-func (s *SecuredQueriesRoutesHelper) SetupRoutes(authModelIdentity *security.AuthModel, authModelNoIdentity *security.AuthModel) {
+func (s *SecuredQueriesRouter) setupRoutes(authModelIdentity *security.AuthModel, authModelNoIdentity *security.AuthModel) {
 
 	s.Logger.Infof("-----------------------------------------------")
 	s.Logger.Infof("Secured routes (no identity) in this query service are:")
@@ -60,7 +81,7 @@ func (s *SecuredQueriesRoutesHelper) SetupRoutes(authModelIdentity *security.Aut
 
 }
 
-func (s *SecuredQueriesRoutesHelper) handleIdentityRequiredQueries(w http.ResponseWriter, r *http.Request) {
+func (s *SecuredQueriesRouter) handleIdentityRequiredQueries(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -76,7 +97,7 @@ func (s *SecuredQueriesRoutesHelper) handleIdentityRequiredQueries(w http.Respon
 	s.baseQueryHandler(w, r, queryParams)
 }
 
-func (s *SecuredQueriesRoutesHelper) handleNonIdentityRequiredQueries(w http.ResponseWriter, r *http.Request) {
+func (s *SecuredQueriesRouter) handleNonIdentityRequiredQueries(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -87,7 +108,7 @@ func (s *SecuredQueriesRoutesHelper) handleNonIdentityRequiredQueries(w http.Res
 	s.baseQueryHandler(w, r, queryParams)
 }
 
-func (s *SecuredQueriesRoutesHelper) baseQueryHandler(w http.ResponseWriter, r *http.Request, queryParams map[string]string) {
+func (s *SecuredQueriesRouter) baseQueryHandler(w http.ResponseWriter, r *http.Request, queryParams map[string]string) {
 	params := mux.Vars(r)
 
 	s.Logger.Infof("Incoming request to run the query: %s/%s", params["serviceName"], params["methodName"])
@@ -113,15 +134,7 @@ func (s *SecuredQueriesRoutesHelper) baseQueryHandler(w http.ResponseWriter, r *
 	writeHttpResponse(w, http.StatusOK, jsonResults)
 }
 
-/*
-func (s *APIPrivateServer) writeHttpResponse(w http.ResponseWriter, status int, v []byte) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	w.Write(v)
-}
-*/
-
-// TODO_PORT: This should probably be in a separate file (and package) for reuse by other controllers and services
+// TODO_PORT: (didn't I move this already? Making note to check.)This should probably be in a separate file (and package) for reuse by other controllers and services
 func getQueryParams(r *http.Request) map[string]string {
 	queryParams := make(map[string]string)
 	for key, values := range r.URL.Query() {
