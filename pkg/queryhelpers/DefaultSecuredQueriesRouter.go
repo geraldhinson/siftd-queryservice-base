@@ -34,7 +34,7 @@ func NewSecuredQueriesRouter(
 
 	if _, err := os.Stat(path + models.QUERIES_FILE); errors.Is(err, os.ErrNotExist) {
 		// file does not exist
-		service.Logger.Fatalf("Public queries file <%s> does not exist. Shutting down.", path+models.QUERIES_FILE)
+		service.Logger.Fatalf("Queries file <%s> does not exist. Shutting down.", path+models.QUERIES_FILE)
 		return nil
 	}
 
