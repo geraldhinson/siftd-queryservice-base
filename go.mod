@@ -36,4 +36,4 @@ require (
 
 require github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 
-require github.com/geraldhinson/siftd-base v0.13.0
+require github.com/geraldhinson/siftd-base v0.14.0
