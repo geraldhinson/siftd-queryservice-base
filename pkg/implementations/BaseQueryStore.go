@@ -18,7 +18,7 @@ import (
 // type BaseQueryStore[T interfaces.IQueryStore] struct {
 type BaseQueryStore struct {
 	dbConnectString string
-	methods         []models.Method
+	Methods         []models.Method
 	logger          *logrus.Logger
 	dbPool          *pgxpool.Pool
 	rootCtx         *context.Context
@@ -57,6 +57,17 @@ func NewPublicQueryStore(configuration *viper.Viper, logger *logrus.Logger) (*Ba
 	return store, nil
 }
 
+func (store *BaseQueryStore) GetQueryList() ([]byte, error) {
+	// Return the list of queries as json
+	jsonData, err := json.Marshal(store.Methods)
+	if err != nil {
+		store.logger.Error("Error marshalling query list: ", err)
+		return nil, fmt.Errorf("Error marshalling query list: %w", err)
+	}
+
+	return jsonData, nil
+}
+
 func (store *BaseQueryStore) RunStandAloneQuery(serviceName string,
 	methodName string,
 	callParameters map[string]string) ( /*[]map[string]interface{}*/ []byte, error) {
@@ -69,7 +80,7 @@ func (store *BaseQueryStore) RunStandAloneQuery(serviceName string,
 
 	// Lookup the query to see if it exists
 	var method *models.Method
-	for _, m := range store.methods {
+	for _, m := range store.Methods {
 		if m.ServiceName == serviceName && m.MethodName == methodName {
 			method = &m
 			break
@@ -237,7 +248,7 @@ func (store *BaseQueryStore) loadQueries(queryFile string) error {
 
 	for _, m := range methods {
 		if m.ValidateQueryParamsWithQuery(store.logger) {
-			store.methods = append(store.methods, m)
+			store.Methods = append(store.Methods, m)
 		} else {
 			store.logger.Printf("Query params validation failed for method: %s", m.MethodName)
 		}

@@ -21,6 +21,9 @@ type QueryParam struct {
 // Method represents the method that can be called.
 type Method struct {
 	Enabled         bool
+	AuthRequired    []string
+	Description     string
+	ExampleCall     string
 	ServiceName     string
 	MethodName      string
 	MethodType      MethodType // Assuming MethodType is already defined in your enums (as we discussed earlier)

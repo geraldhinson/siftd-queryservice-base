@@ -2,6 +2,7 @@ package queryhelpers
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -22,14 +23,8 @@ type SecuredQueriesRouter struct {
 
 func NewSecuredQueriesRouter(
 	service *serviceBase.ServiceBase,
-	noIdentityProvidedRealm string,
-	noIdentityProvidedAuthType security.AuthTypes,
-	noIdentityProvidedTimeout security.AuthTimeout,
-	noIdentityProvidedApproved []string,
-	identityProvidedRealm string,
-	identityProvidedAuthType security.AuthTypes,
-	identityProvidedTimeout security.AuthTimeout,
-	identityProvidedApproved []string) *SecuredQueriesRouter {
+	policyTranslation *models.QueryFileAuthPoliciesList) *SecuredQueriesRouter {
+
 	path := service.Configuration.GetString("RESDIR_PATH")
 
 	if _, err := os.Stat(path + models.QUERIES_FILE); errors.Is(err, os.ErrNotExist) {
@@ -44,15 +39,9 @@ func NewSecuredQueriesRouter(
 		return nil
 	}
 
-	authModelIdentity, err := service.NewAuthModel(noIdentityProvidedRealm, noIdentityProvidedAuthType, noIdentityProvidedTimeout, noIdentityProvidedApproved)
-	if err != nil {
-		service.Logger.Fatalf("Failed to initialize AuthModel in default PublicQueriesRouter for query service: %v", err)
-		return nil
-	}
-
-	authModelNoIdentity, err := service.NewAuthModel(identityProvidedRealm, identityProvidedAuthType, identityProvidedTimeout, identityProvidedApproved)
-	if err != nil {
-		service.Logger.Fatalf("Failed to initialize AuthModel in default PublicQueriesRouter for query service: %v", err)
+	queryMethod2AuthModel_Mapping := buildAuthModelsForQueries(service, store, policyTranslation)
+	if queryMethod2AuthModel_Mapping == nil {
+		service.Logger.Fatalf("Failed to build auth models for queries in query service: %v", err)
 		return nil
 	}
 
@@ -60,25 +49,60 @@ func NewSecuredQueriesRouter(
 		ServiceBase: service,
 		store:       store,
 	}
-	securedQueriesRouter.setupRoutes(authModelIdentity, authModelNoIdentity)
+	securedQueriesRouter.setupRoutes(queryMethod2AuthModel_Mapping)
 
 	return securedQueriesRouter
 }
 
-func (s *SecuredQueriesRouter) setupRoutes(authModelIdentity *security.AuthModel, authModelNoIdentity *security.AuthModel) {
+func (s *SecuredQueriesRouter) setupRoutes(method2AuthModelMap map[int]*security.AuthModel) {
 
-	s.Logger.Infof("-----------------------------------------------")
-	s.Logger.Infof("Secured routes (no identity) in this query service are:")
+	// loop through all methods in the query store and build the auth models
+	var routeString string
+	for methodIndex, method := range s.store.Methods {
+		if method.Enabled == false {
+			continue
+		}
+		if strings.Contains(method.ExampleCall, "/identities/") {
+			// this is a query that requires an identity
+			routeString = fmt.Sprintf("/v1/identities/{identityId}/queries/%s/%s", method.ServiceName, method.MethodName)
+			s.RegisterRoute(constants.HTTP_GET, routeString, method2AuthModelMap[methodIndex], s.handleIdentityRequiredQueries)
+		} else {
+			routeString = fmt.Sprintf("/v1/queries/%s/%s", method.ServiceName, method.MethodName)
+			s.RegisterRoute(constants.HTTP_GET, routeString, method2AuthModelMap[methodIndex], s.handleNonIdentityRequiredQueries)
+		}
+	}
 
-	var routeString = "/v1/queries/{serviceName}/{methodName}"
-	s.RegisterRoute(constants.HTTP_GET, routeString, authModelNoIdentity, s.handleNonIdentityRequiredQueries)
+	// now register the non-database routes (TODO: move this to HealthCheckRouter)
+	authModel, err := s.NewAuthModel(security.NO_REALM, security.NO_AUTH, security.NO_EXPIRY, nil)
+	if err != nil {
+		s.Logger.Fatalf("Failed to initialize AuthModel in default PublicQueriesRouter for query service: %v", err)
+		return
+	}
 
-	s.Logger.Infof("-----------------------------------------------")
-	s.Logger.Infof("Secured routes (with identity) in this query service are:")
+	routeString = "/v1/queries"
+	s.RegisterRoute(constants.HTTP_GET, routeString, authModel, s.handleGetQueryList)
 
-	routeString = "/v1/identities/{identityId}/queries/{serviceName}/{methodName}"
-	s.RegisterRoute(constants.HTTP_GET, routeString, authModelIdentity, s.handleIdentityRequiredQueries)
+}
 
+func (s *SecuredQueriesRouter) handleGetQueryList(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		s.Logger.Infof("Elapsed time for request: %v", elapsed)
+	}()
+
+	s.Logger.Infof("Incoming request to get the list of defined queries")
+
+	jsonResults, err := s.store.GetQueryList()
+	if err != nil {
+		// TODO_PORT: log the error, but probably don't expose it to the client
+		s.Logger.Info("Failed to run query: ", err)
+
+		writeHttpResponse(w, http.StatusBadRequest, []byte(err.Error()))
+		return
+	}
+
+	writeHttpResponse(w, http.StatusOK, jsonResults)
 }
 
 func (s *SecuredQueriesRouter) handleIdentityRequiredQueries(w http.ResponseWriter, r *http.Request) {
@@ -88,13 +112,14 @@ func (s *SecuredQueriesRouter) handleIdentityRequiredQueries(w http.ResponseWrit
 		s.Logger.Infof("Elapsed time for request: %v", elapsed)
 	}()
 
-	params := mux.Vars(r)
+	//	params := mux.Vars(r)
+	urlParams := getURLPathParams("/queries/", r)
 	queryParams := getQueryParams(r)
 
 	// Add ownerId to query params because all user queries require it in their where clause
-	queryParams["ownerId"] = params["identityId"]
+	queryParams["ownerId"] = urlParams["identityId"]
 
-	s.baseQueryHandler(w, r, queryParams)
+	s.baseQueryHandler(w, r, urlParams, queryParams)
 }
 
 func (s *SecuredQueriesRouter) handleNonIdentityRequiredQueries(w http.ResponseWriter, r *http.Request) {
@@ -103,19 +128,20 @@ func (s *SecuredQueriesRouter) handleNonIdentityRequiredQueries(w http.ResponseW
 		elapsed := time.Since(start)
 		s.Logger.Infof("Elapsed time for request: %v", elapsed)
 	}()
+
+	urlParams := getURLPathParams("/queries/", r)
 	queryParams := getQueryParams(r)
 
-	s.baseQueryHandler(w, r, queryParams)
+	s.baseQueryHandler(w, r, urlParams, queryParams)
 }
 
-func (s *SecuredQueriesRouter) baseQueryHandler(w http.ResponseWriter, r *http.Request, queryParams map[string]string) {
-	params := mux.Vars(r)
+func (s *SecuredQueriesRouter) baseQueryHandler(w http.ResponseWriter, r *http.Request, urlParams map[string]string, queryParams map[string]string) {
+	//	params := mux.Vars(r)
 
-	s.Logger.Infof("Incoming request to run the query: %s/%s", params["serviceName"], params["methodName"])
+	s.Logger.Infof("Incoming request to run the query: %s/%s", urlParams["serviceName"], urlParams["methodName"])
 
-	jsonResults, err := s.store.RunStandAloneQuery(params["serviceName"], params["methodName"], queryParams)
+	jsonResults, err := s.store.RunStandAloneQuery(urlParams["serviceName"], urlParams["methodName"], queryParams)
 	if err != nil {
-		// TODO_PORT: log the error, but probably don't expose it to the client
 		s.Logger.Info("Failed to run query: ", err)
 
 		// check if err contains our constant indicating an internal server error and return 500 if it does
@@ -133,6 +159,36 @@ func (s *SecuredQueriesRouter) baseQueryHandler(w http.ResponseWriter, r *http.R
 
 	writeHttpResponse(w, http.StatusOK, jsonResults)
 }
+func getURLPathParams(pathContains string, r *http.Request) map[string]string {
+	params := make(map[string]string)
+	// return suffix after contained string
+
+	if strings.Contains(r.URL.Path, pathContains) {
+		urlSuffix := strings.Split(r.URL.Path, pathContains)
+		if len(urlSuffix) != 2 {
+			fmt.Printf("Invalid URL path detected on incoming request - unable to find suffix in path: %s\n", r.URL.Path)
+			return nil
+		}
+
+		pathParts := strings.Split(urlSuffix[1], "/")
+		if len(pathParts) != 2 {
+			fmt.Printf("Invalid URL path detected on incoming request - unable to find both service and method in path: %s\n", r.URL.Path)
+			return nil
+		}
+		params["serviceName"] = pathParts[0]
+		params["methodName"] = pathParts[1]
+
+		requestParams := mux.Vars(r)
+		if requestParams != nil && requestParams["identityId"] != "" {
+			params["identityId"] = requestParams["identityId"]
+		}
+
+		return params
+	} else {
+		fmt.Printf("Invalid URL path detected on incoming request - unable to find prefix in path: %s\n", r.URL.Path)
+		return nil
+	}
+}
 
 // TODO_PORT: (didn't I move this already? Making note to check.)This should probably be in a separate file (and package) for reuse by other controllers and services
 func getQueryParams(r *http.Request) map[string]string {
@@ -144,10 +200,3 @@ func getQueryParams(r *http.Request) map[string]string {
 	}
 	return queryParams
 }
-
-//func WriteJSON(w http.ResponseWriter, status int, v any) error {
-//	w.Header().Add("Content-Type", "application/json")
-//	w.WriteHeader(status)
-//
-//	return json.NewEncoder(w).Encode(v)
-//}
