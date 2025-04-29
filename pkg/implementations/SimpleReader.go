@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/geraldhinson/siftd-queryservice-base/pkg/models"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -13,17 +12,19 @@ import (
 )
 
 type SimpleReader struct {
-	logger *logrus.Logger
-	conn   *pgxpool.Pool
-	rows   pgx.Rows
+	logger     *logrus.Logger
+	conn       *pgxpool.Pool
+	rows       pgx.Rows
+	debugLevel int
 }
 
 // NewSimpleReader initializes a new SimpleReader
-func NewSimpleReader(rows pgx.Rows, conn *pgxpool.Pool, logger *logrus.Logger) *SimpleReader {
+func NewSimpleReader(rows pgx.Rows, conn *pgxpool.Pool, logger *logrus.Logger, debugLevel int) *SimpleReader {
 	return &SimpleReader{
-		rows:   rows,
-		conn:   conn,
-		logger: logger,
+		rows:       rows,
+		conn:       conn,
+		logger:     logger,
+		debugLevel: debugLevel,
 	}
 }
 
@@ -59,10 +60,10 @@ func (sr *SimpleReader) GetFieldValue(columnDictionary map[string]interface{}, c
 	// Retrieve the type and value of the column
 	fieldType := sr.rows.FieldDescriptions()[column].DataTypeOID
 
-	if models.DEBUGTRACE == true {
-		sr.logger.Infof("val: %v\n", values[column])
-		sr.logger.Infof("type: %v\n", fieldType)
+	if sr.debugLevel > 1 {
 		sr.logger.Infof("name: %v\n", sr.GetFieldName(column))
+		sr.logger.Infof("type: %v\n", fieldType)
+		sr.logger.Infof("val: %v\n", values[column])
 	}
 
 	// TODO_PORT: Add support/un-support for more data types
@@ -71,7 +72,7 @@ func (sr *SimpleReader) GetFieldValue(columnDictionary map[string]interface{}, c
 
 	// explicitly not supported list (so far)
 	case pgtype.UnknownOID, pgtype.XMLOID:
-		return fmt.Errorf("Unsupported field type found in fetched row: %v", fieldType)
+		return fmt.Errorf("queryservice store - Unsupported field type found in fetched row: %v", fieldType)
 
 	// known to work from testing
 	case pgtype.BoolOID,
@@ -89,7 +90,7 @@ func (sr *SimpleReader) GetFieldValue(columnDictionary map[string]interface{}, c
 		uuidArray := values[column].([16]uint8)
 		uuidValue, err := uuid.FromBytes(uuidArray[:])
 		if err != nil {
-			return fmt.Errorf("Unable to convert stored uuid value to a string equivalent: %v\n", err)
+			return fmt.Errorf("queryservice store - unable to convert stored uuid value to a string equivalent: %v\n", err)
 		}
 		columnDictionary[sr.GetFieldName(column)] = uuidValue.String()
 
@@ -147,5 +148,4 @@ func (sr *SimpleReader) PrintAllResults(logger *log.Logger) error {
 // - stats to see if the pool is being used correctly (e.g. if connections are being released)
 // - error handling for when the pool is full
 // - maybe explicit allowed connections for the pool
-// - etc. (hit enter after these for more suggestion from copilot)
 // - add support for more data types in GetFieldValue

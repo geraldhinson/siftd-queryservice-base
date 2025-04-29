@@ -148,7 +148,7 @@ func (m *Method) ValidateQueryParamsWithQuery(logger *logrus.Logger) bool {
 					"service": m.ServiceName,
 					"method":  m.MethodName,
 					"param":   q.Name,
-				}).Info("Found query definition with param name inconsistency in the queries file.")
+				}).Info("queryservice models - found query definition with param name inconsistency in the queries file.")
 				validParams = false
 			}
 		}
@@ -161,14 +161,14 @@ func (m *Method) ValidateQueryParamsWithQuery(logger *logrus.Logger) bool {
 	if len(paramsInQueryString) == 0 && len(m.QueryParameters) == 0 {
 		logger.WithFields(logrus.Fields{
 			"query": m.Query,
-		}).Info("Added query with no parameters.")
+		}).Info("queryservice models - added query with no parameters.")
 		return true
 	}
 
 	if len(paramsInQueryString) == len(m.QueryParameters) {
 		logger.WithFields(logrus.Fields{
 			"query": m.Query,
-		}).Info("Added query with matching parameter count.")
+		}).Info("queryservice models - added query with matching parameter count.")
 		return true
 	}
 
@@ -178,6 +178,6 @@ func (m *Method) ValidateQueryParamsWithQuery(logger *logrus.Logger) bool {
 		"query":    m.Query,
 		"expected": len(m.QueryParameters),
 		"found":    len(paramsInQueryString),
-	}).Info("Found query definition with inconsistent param count in the queries file.")
+	}).Info("queryservice models - found query definition with inconsistent param count in the queries file.")
 	return false
 }

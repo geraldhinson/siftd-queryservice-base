@@ -9,15 +9,17 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/geraldhinson/siftd-base/pkg/constants"
+	sbconstants "github.com/geraldhinson/siftd-base/pkg/constants"
 	"github.com/geraldhinson/siftd-base/pkg/security"
 	"github.com/geraldhinson/siftd-base/pkg/serviceBase"
+	"github.com/geraldhinson/siftd-queryservice-base/pkg/constants"
 	"github.com/geraldhinson/siftd-queryservice-base/pkg/implementations"
 )
 
 type HealthCheckRouter struct {
 	*serviceBase.ServiceBase
-	store *implementations.BaseQueryStore
+	store      *implementations.BaseQueryStore
+	debugLevel int
 }
 
 func NewHealthCheckRouter(
@@ -27,21 +29,27 @@ func NewHealthCheckRouter(
 	timeout security.AuthTimeout,
 	approved []string) *HealthCheckRouter {
 
-	store, err := implementations.NewPublicQueryStore(service.Configuration, service.Logger)
+	var debugLevel = 0
+	if service.Configuration.GetString(constants.DEBUGSIFTD_QUERYHELPERS) != "" {
+		debugLevel = service.Configuration.GetInt(constants.DEBUGSIFTD_QUERYHELPERS)
+	}
+
+	store, err := implementations.NewBaseQueryStore(service.Configuration, service.Logger, "healthcheck:skip-load")
 	if err != nil {
-		service.Logger.Fatalf("Failed to initialize default HealthCheckRouter for query service: %v", err)
+		service.Logger.Info("queryservice healthcheck router - failed to initialize query store: ", err)
 		return nil
 	}
 
 	authModel, err := service.NewAuthModel(realm, authType, timeout, approved)
 	if err != nil {
-		service.Logger.Fatalf("Failed to initialize AuthModelUsers in default HealthCheckRouter for query service: %v", err)
+		service.Logger.Info("queryservice healthcheck router - failed to initialize AuthModel with: ", err)
 		return nil
 	}
 
 	healthCheckRouter := &HealthCheckRouter{
 		ServiceBase: service,
 		store:       store,
+		debugLevel:  debugLevel,
 	}
 	healthCheckRouter.setupRoutes(authModel)
 
@@ -57,42 +65,50 @@ func (h *HealthCheckRouter) setupRoutes(authModel *security.AuthModel) {
 
 func (h *HealthCheckRouter) GetHealthStandalone(w http.ResponseWriter, r *http.Request) {
 	var health = serviceBase.HealthStatus{
-		Status:           constants.HEALTH_STATUS_HEALTHY,
+		Status:           sbconstants.HEALTH_STATUS_HEALTHY,
 		DependencyStatus: map[string]string{}}
 
-	//		err := h.store.HealthCheck() // TODO: decided what to call here for query service health of db
-	var err = fmt.Errorf("unimplemented db health check! Fix.") // TODO: decided what to call here for query service health of db
-	if err != nil {
-		h.Logger.Info("Call to HealthCheck in GetHealthStandalone failed with: ", err)
-		health.DependencyStatus["database"] = constants.HEALTH_STATUS_UNHEALTHY
-		health.Status = constants.HEALTH_STATUS_UNHEALTHY
-	} else {
-		health.DependencyStatus["database"] = constants.HEALTH_STATUS_HEALTHY
+	if h.debugLevel > 0 {
+		h.Logger.Infof("queryservice healthcheck router - incoming healthcheck request: %s", r.URL.Path)
 	}
 
-	// TODO: fix this experiment along with the method below
-	h.GetListOfCalledServices(&health)
+	err := h.store.HealthCheck()
+	if err != nil {
+		h.Logger.Info("queryservice healthcheck router - the call to the query store HealthCheck() in GetHealthStandalone failed with: ", err)
+		health.DependencyStatus["database"] = sbconstants.HEALTH_STATUS_UNHEALTHY
+		health.Status = sbconstants.HEALTH_STATUS_UNHEALTHY
+	} else {
+		health.DependencyStatus["database"] = sbconstants.HEALTH_STATUS_HEALTHY
+	}
+
+	err = h.GetListOfCalledServices(&health)
+	if err != nil {
+		h.Logger.Info("queryservice healthcheck router - failed to retrieve called services in GetHealthStandalone: ", err)
+		health.CalledServices = []string{err.Error()}
+		health.Status = sbconstants.HEALTH_STATUS_UNHEALTHY
+	}
 
 	jsonResults, errmsg := json.Marshal(health)
 	if errmsg != nil {
-		h.Logger.Info("Failed to convert health structure to json: ", errmsg)
-		h.WriteHttpError(w, constants.RESOURCE_INTERNAL_ERROR_CODE, errmsg)
+		h.Logger.Info("queryservice healthcheck router - failed to convert health structure to json in GetHealthStandalone: ", errmsg)
+		h.WriteHttpError(w, sbconstants.RESOURCE_INTERNAL_ERROR_CODE, errmsg)
 		return
 	}
 
 	h.WriteHttpOK(w, jsonResults)
 }
 
-func (h *HealthCheckRouter) GetListOfCalledServices(health *serviceBase.HealthStatus) {
+func (h *HealthCheckRouter) GetListOfCalledServices(health *serviceBase.HealthStatus) error {
 	// TODO: implement this method
 	calledServices := h.Configuration.GetString(constants.CALLED_SERVICES)
-
-	// Declare a slice to hold the parsed array
-	//	var stringArray []string
+	if calledServices == "" {
+		return fmt.Errorf("queryservice healthcheck router - called services not defined in env var: %s", constants.CALLED_SERVICES)
+	}
 
 	// Unmarshal the JSON array
 	if err := json.Unmarshal([]byte(calledServices), &health.CalledServices); err != nil {
-		fmt.Println("failed in GetListOfCalledServices unmarshalling called services JSON from env var:", err)
-		return
+		return fmt.Errorf("queryservice healthcheck router - unmarshalling of called services JSON from env var failed with %w", err)
 	}
+
+	return nil
 }

@@ -8,52 +8,62 @@ import (
 	"strings"
 	"time"
 
-	"github.com/geraldhinson/siftd-base/pkg/constants"
+	//	"github.com/geraldhinson/siftd-base/pkg/constants"
 	"github.com/geraldhinson/siftd-base/pkg/security"
 	"github.com/geraldhinson/siftd-base/pkg/serviceBase"
+	"github.com/geraldhinson/siftd-queryservice-base/pkg/constants"
 	"github.com/geraldhinson/siftd-queryservice-base/pkg/implementations"
 	"github.com/geraldhinson/siftd-queryservice-base/pkg/models"
 	"github.com/gorilla/mux"
+	"github.com/sirupsen/logrus"
 )
 
 type SecuredQueriesRouter struct {
 	*serviceBase.ServiceBase
-	store *implementations.BaseQueryStore
+	store      *implementations.BaseQueryStore
+	debugLevel int
 }
 
 func NewSecuredQueriesRouter(
 	service *serviceBase.ServiceBase,
 	policyTranslation *models.QueryFileAuthPoliciesList) *SecuredQueriesRouter {
 
+	var debugLevel = 0
+	if service.Configuration.GetString(constants.DEBUGSIFTD_QUERYHELPERS) != "" {
+		debugLevel = service.Configuration.GetInt(constants.DEBUGSIFTD_QUERYHELPERS)
+	}
+
 	path := service.Configuration.GetString("RESDIR_PATH")
 
-	if _, err := os.Stat(path + models.QUERIES_FILE); errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(path + constants.QUERIES_FILE); errors.Is(err, os.ErrNotExist) {
 		// file does not exist
-		service.Logger.Fatalf("Queries file <%s> does not exist. Shutting down.", path+models.QUERIES_FILE)
+		service.Logger.Infof("queryservice secured queries router - the secured queries file <%s> does not exist. Shutting down.", path+constants.QUERIES_FILE)
 		return nil
 	}
 
 	store, err := implementations.NewPrivateQueryStore(service.Configuration, service.Logger)
 	if err != nil {
-		service.Logger.Fatalf("Failed to initialize PrivateQueryStore: %v", err)
+		service.Logger.Infof("queryservice secured queries router - failed to initialize the query store with: %v", err)
 		return nil
 	}
 
 	queryMethod2AuthModel_Mapping := buildAuthModelsForQueries(service, store, policyTranslation)
 	if queryMethod2AuthModel_Mapping == nil {
-		service.Logger.Fatalf("Failed to build auth models for queries in query service: %v", err)
+		service.Logger.Infof("queryservice secured queries router - failed to build auth models for secured queries with: %v", err)
 		return nil
 	}
 
 	securedQueriesRouter := &SecuredQueriesRouter{
 		ServiceBase: service,
 		store:       store,
+		debugLevel:  debugLevel,
 	}
 	securedQueriesRouter.setupRoutes(queryMethod2AuthModel_Mapping)
 
 	return securedQueriesRouter
 }
 
+// TODO: make return an error vs calling Fatalf
 func (s *SecuredQueriesRouter) setupRoutes(method2AuthModelMap map[int]*security.AuthModel) {
 
 	// loop through all methods in the query store and build the auth models
@@ -72,10 +82,10 @@ func (s *SecuredQueriesRouter) setupRoutes(method2AuthModelMap map[int]*security
 		}
 	}
 
-	// now register the non-database routes (TODO: move this to HealthCheckRouter)
+	// now register the non-database routes (TODO: move this to HealthCheckRouter and maybe rename that to Mgmt..?)
 	authModel, err := s.NewAuthModel(security.NO_REALM, security.NO_AUTH, security.NO_EXPIRY, nil)
 	if err != nil {
-		s.Logger.Fatalf("Failed to initialize AuthModel in default PublicQueriesRouter for query service: %v", err)
+		s.Logger.Fatalf("queryservice secured queries router - failed to initialize AuthModel in default PublicQueriesRouter for query service: %v", err)
 		return
 	}
 
@@ -88,15 +98,17 @@ func (s *SecuredQueriesRouter) handleGetQueryList(w http.ResponseWriter, r *http
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		s.Logger.Infof("Elapsed time for request: %v", elapsed)
+		s.Logger.Infof("queryservice secured queries router - Elapsed time for request: %v", elapsed)
 	}()
 
-	s.Logger.Infof("Incoming request to get the list of defined queries")
+	if s.debugLevel > 0 {
+		s.Logger.Infof("queryservice secured queries router - incoming request to get the list of defined queries")
+	}
 
 	jsonResults, err := s.store.GetQueryList()
 	if err != nil {
 		// TODO_PORT: log the error, but probably don't expose it to the client
-		s.Logger.Info("Failed to run query: ", err)
+		s.Logger.Info("queryservice secured queries router - Failed to run query: ", err)
 
 		writeHttpResponse(w, http.StatusBadRequest, []byte(err.Error()))
 		return
@@ -109,11 +121,15 @@ func (s *SecuredQueriesRouter) handleIdentityRequiredQueries(w http.ResponseWrit
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		s.Logger.Infof("Elapsed time for request: %v", elapsed)
+		s.Logger.Infof("queryservice secured queries router - Elapsed time for request: %v", elapsed)
 	}()
 
+	if s.debugLevel > 0 {
+		s.Logger.Infof("queryservice secured queries router - incoming identity-required query request: %s", r.URL.Path)
+	}
+
 	//	params := mux.Vars(r)
-	urlParams := getURLPathParams("/queries/", r)
+	urlParams := getURLPathParams(s.Logger, "/queries/", r)
 	queryParams := getQueryParams(r)
 
 	// Add ownerId to query params because all user queries require it in their where clause
@@ -126,26 +142,27 @@ func (s *SecuredQueriesRouter) handleNonIdentityRequiredQueries(w http.ResponseW
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		s.Logger.Infof("Elapsed time for request: %v", elapsed)
+		s.Logger.Infof("queryservice secured queries router - Elapsed time for request: %v", elapsed)
 	}()
 
-	urlParams := getURLPathParams("/queries/", r)
+	if s.debugLevel > 0 {
+		s.Logger.Infof("queryservice secured queries router - incoming no-identity-required query request: %s", r.URL.Path)
+	}
+
+	urlParams := getURLPathParams(s.Logger, "/queries/", r)
 	queryParams := getQueryParams(r)
 
 	s.baseQueryHandler(w, r, urlParams, queryParams)
 }
 
 func (s *SecuredQueriesRouter) baseQueryHandler(w http.ResponseWriter, r *http.Request, urlParams map[string]string, queryParams map[string]string) {
-	//	params := mux.Vars(r)
-
-	s.Logger.Infof("Incoming request to run the query: %s/%s", urlParams["serviceName"], urlParams["methodName"])
 
 	jsonResults, err := s.store.RunStandAloneQuery(urlParams["serviceName"], urlParams["methodName"], queryParams)
 	if err != nil {
-		s.Logger.Info("Failed to run query: ", err)
+		s.Logger.Info("queryservice secured queries router - Failed to run query: ", err)
 
 		// check if err contains our constant indicating an internal server error and return 500 if it does
-		if strings.Contains(err.Error(), models.INTERNAL_SERVER_ERROR) {
+		if strings.Contains(err.Error(), constants.INTERNAL_SERVER_ERROR) {
 			writeHttpResponse(w, http.StatusInternalServerError, []byte(err.Error()))
 		} else {
 			writeHttpResponse(w, http.StatusBadRequest, []byte(err.Error()))
@@ -153,26 +170,27 @@ func (s *SecuredQueriesRouter) baseQueryHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if models.DEBUGTRACE == true {
-		s.Logger.Println("Result from RunStandAloneQuery() was: ", string(jsonResults))
+	if s.debugLevel > 1 {
+		s.Logger.Println("queryservice secured queries router - the result from RunStandAloneQuery() was: ", string(jsonResults))
 	}
 
 	writeHttpResponse(w, http.StatusOK, jsonResults)
 }
-func getURLPathParams(pathContains string, r *http.Request) map[string]string {
+
+func getURLPathParams(logger *logrus.Logger, pathContains string, r *http.Request) map[string]string {
 	params := make(map[string]string)
 	// return suffix after contained string
 
 	if strings.Contains(r.URL.Path, pathContains) {
 		urlSuffix := strings.Split(r.URL.Path, pathContains)
 		if len(urlSuffix) != 2 {
-			fmt.Printf("Invalid URL path detected on incoming request - unable to find suffix in path: %s\n", r.URL.Path)
+			logger.Infof("queryservice queries router - Invalid URL path detected on incoming request - unable to find suffix in path: %s\n", r.URL.Path)
 			return nil
 		}
 
 		pathParts := strings.Split(urlSuffix[1], "/")
 		if len(pathParts) != 2 {
-			fmt.Printf("Invalid URL path detected on incoming request - unable to find both service and method in path: %s\n", r.URL.Path)
+			logger.Infof("queryservice queries router - Invalid URL path detected on incoming request - unable to find both service and method in path: %s\n", r.URL.Path)
 			return nil
 		}
 		params["serviceName"] = pathParts[0]
@@ -185,7 +203,7 @@ func getURLPathParams(pathContains string, r *http.Request) map[string]string {
 
 		return params
 	} else {
-		fmt.Printf("Invalid URL path detected on incoming request - unable to find prefix in path: %s\n", r.URL.Path)
+		logger.Infof("queryservice queries router - Invalid URL path detected on incoming request - unable to find prefix in path: %s\n", r.URL.Path)
 		return nil
 	}
 }

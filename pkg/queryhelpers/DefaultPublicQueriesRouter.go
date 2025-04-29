@@ -3,51 +3,57 @@ package queryhelpers
 import (
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/geraldhinson/siftd-base/pkg/constants"
 	"github.com/geraldhinson/siftd-base/pkg/security"
 	"github.com/geraldhinson/siftd-base/pkg/serviceBase"
+	"github.com/geraldhinson/siftd-queryservice-base/pkg/constants"
 	"github.com/geraldhinson/siftd-queryservice-base/pkg/implementations"
 	"github.com/geraldhinson/siftd-queryservice-base/pkg/models"
 )
 
 type PublicQueriesRouter struct {
 	*serviceBase.ServiceBase
-	store *implementations.BaseQueryStore
+	store      *implementations.BaseQueryStore
+	debugLevel int
 }
 
 func NewPublicQueriesRouter(
 	service *serviceBase.ServiceBase,
 	policyTranslation *models.QueryFileAuthPoliciesList) *PublicQueriesRouter {
 
+	var debugLevel = 0
+	if service.Configuration.GetString(constants.DEBUGSIFTD_QUERYHELPERS) != "" {
+		debugLevel = service.Configuration.GetInt(constants.DEBUGSIFTD_QUERYHELPERS)
+	}
+
 	path := service.Configuration.GetString("RESDIR_PATH")
 
-	if _, err := os.Stat(path + models.PUBLIC_QUERIES_FILE); errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(path + constants.PUBLIC_QUERIES_FILE); errors.Is(err, os.ErrNotExist) {
 		// file does not exist
-		service.Logger.Fatalf("Public queries file <%s> does not exist. Shutting down.", path+models.PUBLIC_QUERIES_FILE)
+		service.Logger.Infof("queryservice public queries router - the public queries file <%s> does not exist. Shutting down.", path+constants.PUBLIC_QUERIES_FILE)
 		return nil
 	}
 
 	store, err := implementations.NewPublicQueryStore(service.Configuration, service.Logger)
 	if err != nil {
-		service.Logger.Fatalf("Failed to initialize PublicQueryStore in query service: %v", err)
+		service.Logger.Infof("queryservice public queries router - failed to initialize the query store with: %v", err)
 		return nil
 	}
 
 	queryMethod2AuthModel_Mapping := buildAuthModelsForQueries(service, store, policyTranslation)
 	if queryMethod2AuthModel_Mapping == nil {
-		service.Logger.Fatalf("Failed to build auth models for queries in query service: %v", err)
+		service.Logger.Infof("queryservice public queries router - failed to build auth models for the public queries with %v", err)
 		return nil
 	}
 
 	publicQueriesRouter := &PublicQueriesRouter{
 		ServiceBase: service,
 		store:       store,
+		debugLevel:  debugLevel,
 	}
 
 	publicQueriesRouter.setupRoutes(queryMethod2AuthModel_Mapping)
@@ -75,7 +81,7 @@ func buildAuthModelsForQueries(
 		for _, authRequired := range method.AuthRequired {
 			queryFilePolicy, ok := (*policyTranslation)[authRequired]
 			if !ok {
-				log.Printf("AuthRequired string <%s> was not found in the provided map of auth policy translations for method %d with query %s",
+				service.Logger.Infof("queryservice queries router - the AuthRequired string <%s> was not found in the provided map of auth policy translations for method %d with query %s",
 					authRequired, methodIndex, method.Query)
 				return nil
 			}
@@ -89,13 +95,13 @@ func buildAuthModelsForQueries(
 				)
 				if err != nil {
 					// log the error and fail hard so forced to deal with
-					log.Printf("Failed service.AuthModel() call in default PublicQueriesRouter for query service: %v", err)
+					service.Logger.Infof("queryservice queries router - the auth model provided for method %d with query %s failed with: %v", methodIndex, method.Query, err)
 					return nil
 				}
 			} else {
 				err = authModelInProgress.AddPolicy(queryFilePolicy.Realm, queryFilePolicy.AuthType, queryFilePolicy.Timeout, queryFilePolicy.ApprovedList)
 				if err != nil {
-					log.Printf("Failed AuthModel.AddPolicy() call in default PublicQueriesRouter for query service: %v", err)
+					service.Logger.Infof("queryservice queries router - the call to add an additional policy to the authmodel for method %d with query %s failed with: %v", methodIndex, method.Query, err)
 					return nil
 				}
 			}
@@ -107,10 +113,8 @@ func buildAuthModelsForQueries(
 	return queryMethod2AuthModel_Mapping
 }
 
+// TODO: make this return an error vs call Fatalf
 func (s *PublicQueriesRouter) setupRoutes(method2AuthModelMap map[int]*security.AuthModel) {
-	s.Logger.Infof("-----------------------------------------------")
-	s.Logger.Infof("Unsecured (public) routes in this query service are:")
-
 	// loop through all methods in the query store and build the auth models
 	var routeString string
 	for methodIndex, method := range s.store.Methods {
@@ -124,7 +128,7 @@ func (s *PublicQueriesRouter) setupRoutes(method2AuthModelMap map[int]*security.
 	// now register the non-database routes (TODO: move this to HealthCheckRouter)
 	authModel, err := s.NewAuthModel(security.NO_REALM, security.NO_AUTH, security.NO_EXPIRY, nil)
 	if err != nil {
-		s.Logger.Fatalf("Failed to initialize AuthModel in default PublicQueriesRouter for query service: %v", err)
+		s.Logger.Fatalf("queryservice public queries router - failed to initialize AuthModel in default PublicQueriesRouter for query service: %v", err)
 		return
 	}
 
@@ -136,15 +140,17 @@ func (s *PublicQueriesRouter) handleGetQueryList(w http.ResponseWriter, r *http.
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		s.Logger.Infof("Elapsed time for request: %v", elapsed)
+		s.Logger.Infof("queryservice public queries router - Elapsed time for request: %v", elapsed)
 	}()
 
-	s.Logger.Infof("Incoming request to get the list of defined queries")
+	if s.debugLevel > 0 {
+		s.Logger.Infof("queryservice public queries router - incoming request to get the list of defined queries")
+	}
 
 	jsonResults, err := s.store.GetQueryList()
 	if err != nil {
 		// TODO_PORT: log the error, but probably don't expose it to the client
-		s.Logger.Info("Failed to run query: ", err)
+		s.Logger.Info("queryservice public queries router - Failed to run query: ", err)
 
 		writeHttpResponse(w, http.StatusBadRequest, []byte(err.Error()))
 		return
@@ -157,20 +163,22 @@ func (s *PublicQueriesRouter) handlePublicQueries(w http.ResponseWriter, r *http
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		s.Logger.Infof("Elapsed time for request: %v", elapsed)
+		s.Logger.Infof("queryservice public queries router - Elapsed time for request: %v", elapsed)
 	}()
 
-	params := getURLPathParams("/v1/public/queries/", r)
+	params := getURLPathParams(s.Logger, "/v1/public/queries/", r)
 	queryParams := getQueryParams(r)
 
-	s.Logger.Infof("Incoming request to run the query: %s/%s", params["serviceName"], params["methodName"])
+	if s.debugLevel > 0 {
+		s.Logger.Infof("queryservice public queries router - incoming request to run the query: %s/%s", params["serviceName"], params["methodName"])
+	}
 
 	jsonResults, err := s.store.RunStandAloneQuery(params["serviceName"], params["methodName"], queryParams)
 	if err != nil {
-		s.Logger.Info("Failed to run query: ", err)
+		s.Logger.Info("queryservice public queries router - Failed to run query: ", err)
 
 		// check if err contains our constant indicating an internal server error and return 500 if it does
-		if strings.Contains(err.Error(), models.INTERNAL_SERVER_ERROR) {
+		if strings.Contains(err.Error(), constants.INTERNAL_SERVER_ERROR) {
 			writeHttpResponse(w, http.StatusInternalServerError, []byte(err.Error()))
 		} else {
 			writeHttpResponse(w, http.StatusBadRequest, []byte(err.Error()))
@@ -178,8 +186,8 @@ func (s *PublicQueriesRouter) handlePublicQueries(w http.ResponseWriter, r *http
 		return
 	}
 
-	if models.DEBUGTRACE == true {
-		s.Logger.Println("Result from RunStandAloneQuery() was: ", string(jsonResults))
+	if s.debugLevel > 0 == true {
+		s.Logger.Println("queryservice public queries router - the result from RunStandAloneQuery() was: ", string(jsonResults))
 	}
 
 	writeHttpResponse(w, http.StatusOK, jsonResults)

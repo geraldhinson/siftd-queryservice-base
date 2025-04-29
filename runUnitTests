@@ -1,0 +1,3 @@
+export set RESDIR_PATH=.
+go test -v --cover -coverpkg=github.com/geraldhinson/siftd-queryservice-base/pkg/implementations,github.com/geraldhinson/siftd-queryservice-base/pkg/models,github.com/geraldhinson/siftd-queryservice-base/pkg/queryhelpers -coverprofile=coverage.out
+go tool cover -html=coverage.out

@@ -68,7 +68,7 @@ func (dt *DataType) UnmarshalJSON(b []byte) error {
 		//	case "CITEXT":
 		//		*dt = CITEXT
 	default:
-		return fmt.Errorf("invalid DataType: %s", s)
+		return fmt.Errorf("queryservice models - invalid query parameter data type detected in UnmarshalJson: %s", s)
 	}
 	return nil
 }
@@ -92,7 +92,7 @@ func (mt *MethodType) UnmarshalJSON(b []byte) error {
 	case "STANDALONE_REQUEST":
 		*mt = STANDALONE_REQUEST
 	default:
-		return fmt.Errorf("invalid MethodType: %s", s)
+		return fmt.Errorf("queryservice models - invalid MethodType %s detected on query", s)
 	}
 	return nil
 }

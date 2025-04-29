@@ -1,5 +1,9 @@
-// TODOs:
-// - CONSIDER: add metrics for DB connections, etc.?
-// - CONSIDER: anything special to add for new relic or similar monitoring
-// - add call to retrieve the list of queries OR alternatively, consider moving the queries defined into the resource store under known IDs (similar to journal reader and scheduler pattern)
-// - unit/load testing similar to siftd-base
+TODO-list:
+ - CONSIDER: add metrics for DB connections, etc.?
+ - CONSIDER: anything special to add for new relic or similar monitoring?
+ - DONE: health check DB call is not working
+ - DONE: clean up errors and logging like done for siftd-base 
+ - DONE: add debug with env var like siftd-base has done
+ - DONE (1/2): add call to retrieve the list of queries OR alternatively, consider moving the queries defined into the resource store under known IDs (similar to journal reader and scheduler pattern)
+	- probably returning too much data in this - simplify it
+ - DONE (mostly - better coverage desired): unit/load testing similar to siftd-base

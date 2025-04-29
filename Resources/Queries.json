@@ -1,0 +1,34 @@
+[
+  {
+    "enabled": true,
+    "authRequired": ["public access"],
+    "description": "Simple examle fetching json data",
+    "exampleCall": "{{HTTP}}://{{QUERIES}}/v1/queries/unittests/getJsonById?id=1",
+    "serviceName": "unittests",
+    "methodName": "getJsonById",
+    "methodType": "STANDALONE_REQUEST",
+    "query": "SELECT \"aJson\" FROM public.\"PG-KitchenSink\" WHERE \"aBigInt\" = {id} ORDER BY \"anInteger\";",
+    "queryParameters": [
+      {
+        "name": "id",
+        "type": "GUID"
+      }
+    ]
+  },
+  {
+    "enabled": true,
+    "authRequired": ["public access"],
+    "description": "Example call showing how to use the ownerId in the URL as a query param",
+    "exampleCall": "GET {{HTTP}}://{{QUERIES}}/v1/identities/Owner-GUID-here/queries/unittests/getDataByOwnerId",
+    "serviceName": "unittests",
+    "methodName": "getDataByOwnerId",
+    "methodType": "STANDALONE_REQUEST",
+    "query": "SELECT * FROM public.\"PG-KitchenSink\" WHERE \"ownerId\" = {ownerId} ORDER BY \"anInteger\";",
+    "queryParameters": [
+      {
+        "name": "ownerId",
+        "type": "GUID"
+      }
+    ]
+  }
+]
