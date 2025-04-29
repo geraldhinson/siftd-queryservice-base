@@ -24,15 +24,13 @@ const (
 	ARRAY_VARCHAR
 	ARRAY_INTEGER
 	ARRAY_DATE
-
-// CITEXT	// currenly not supported in the output
 )
 
 // UnmarshalJSON customizes the JSON decoding for DataType, parsing the string into an enum.
 func (dt *DataType) UnmarshalJSON(b []byte) error {
 	var s string
 	if err := json.Unmarshal(b, &s); err != nil {
-		return err
+		return fmt.Errorf("queryservice models - failed to unmarshal JSON for DataType: %w", err)
 	}
 
 	// Map the string to the corresponding enum value
@@ -65,8 +63,6 @@ func (dt *DataType) UnmarshalJSON(b []byte) error {
 		*dt = ARRAY_INTEGER
 	case "ARRAY_DATE":
 		*dt = ARRAY_DATE
-		//	case "CITEXT":
-		//		*dt = CITEXT
 	default:
 		return fmt.Errorf("queryservice models - invalid query parameter data type detected in UnmarshalJson: %s", s)
 	}
@@ -84,7 +80,7 @@ const (
 func (mt *MethodType) UnmarshalJSON(b []byte) error {
 	var s string
 	if err := json.Unmarshal(b, &s); err != nil {
-		return err
+		return fmt.Errorf("queryservice models - failed to unmarshal JSON for MethodType: %w", err)
 	}
 
 	// Map the string to the corresponding enum value

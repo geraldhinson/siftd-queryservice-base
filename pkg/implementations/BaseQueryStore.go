@@ -159,9 +159,11 @@ func (store *BaseQueryStore) GetQueryList() ([]byte, error) {
 	return jsonData, nil
 }
 
-func (store *BaseQueryStore) RunStandAloneQuery(serviceName string,
+func (store *BaseQueryStore) RunStandAloneQuery(
+	serviceName string,
 	methodName string,
-	callParameters map[string]string) ( /*[]map[string]interface{}*/ []byte, error) {
+	callParameters map[string]string) ([]byte, error) {
+
 	serviceName = strings.TrimSpace(serviceName)
 	methodName = strings.TrimSpace(methodName)
 
@@ -217,7 +219,11 @@ func (store *BaseQueryStore) RunStandAloneQuery(serviceName string,
 	// Create the SQL query and execute it
 	// Multiple rows query
 	query := method.GetQueryStringInCallableFormat()
-	paramMap := method.GetMapOfParametersForQueryCall(callParameters) // TODO_PORT: the called func here needs to return both paramMap and error, then test it
+	paramMap, err := method.GetMapOfParametersForQueryCall(callParameters) // TODO_PORT: the called func here needs to return both paramMap and error, then test it
+	if err != nil {
+		store.logger.Info("queryservice store - error creating parameter map for query: ", err)
+		return nil, fmt.Errorf("queryservice store - error creating parameter map for query: %w", err)
+	}
 
 	store.logger.Info("queryservice store - Query: ", query)
 	if store.debugLevel > 0 {
@@ -235,7 +241,7 @@ func (store *BaseQueryStore) RunStandAloneQuery(serviceName string,
 	defer rows.Close()
 
 	// Process the query results
-	sr := NewSimpleReader(rows, store.dbPool, store.logger, store.debugLevel)
+	sr := NewSimpleReader(rows, store.logger, store.debugLevel)
 	result, err := sr.ProcessResponse()
 	if err != nil {
 		// build empty result to return to caller
@@ -276,7 +282,7 @@ func (store *BaseQueryStore) monitorPoolStats() {
 	store.logger.Info("Pool stats", statsMap)
 }
 
-/* TODO_PORT: Implement this if needed
+/* TODO: Implement this if needed
 func (store *BaseQueryStore[T]) Close() {
 	(*store.cancel)()
 	store.dbPool.Close()

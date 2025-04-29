@@ -7,3 +7,10 @@ TODO-list:
  - DONE (1/2): add call to retrieve the list of queries OR alternatively, consider moving the queries defined into the resource store under known IDs (similar to journal reader and scheduler pattern)
 	- probably returning too much data in this - simplify it
  - DONE (mostly - better coverage desired): unit/load testing similar to siftd-base
+ - add tests that prove that the logic deals with missing/extra parameters (anything other than exact match) between
+   the query and the parameters defined in the query file
+ - add support somewhere for more functionality of pgx pools
+ - stats to see if the pool is being used correctly (e.g. if connections are being released)
+ - error handling for when the pool is full
+ - maybe explicit allowed connections for the pool
+ - add support for more data types in GetFieldValue

@@ -34,19 +34,19 @@ func NewPublicQueriesRouter(
 
 	if _, err := os.Stat(path + constants.PUBLIC_QUERIES_FILE); errors.Is(err, os.ErrNotExist) {
 		// file does not exist
-		service.Logger.Infof("queryservice public queries router - the public queries file <%s> does not exist. Shutting down.", path+constants.PUBLIC_QUERIES_FILE)
+		service.Logger.Errorf("queryservice public queries router - the public queries file <%s> does not exist. Shutting down.", path+constants.PUBLIC_QUERIES_FILE)
 		return nil
 	}
 
 	store, err := implementations.NewPublicQueryStore(service.Configuration, service.Logger)
 	if err != nil {
-		service.Logger.Infof("queryservice public queries router - failed to initialize the query store with: %v", err)
+		service.Logger.Errorf("queryservice public queries router - failed to initialize the query store with: %v", err)
 		return nil
 	}
 
-	queryMethod2AuthModel_Mapping := buildAuthModelsForQueries(service, store, policyTranslation)
-	if queryMethod2AuthModel_Mapping == nil {
-		service.Logger.Infof("queryservice public queries router - failed to build auth models for the public queries with %v", err)
+	queryMethod2AuthModel_Mapping, err := buildAuthModelsForQueries(service, store, policyTranslation)
+	if err != nil {
+		service.Logger.Errorf("queryservice public queries router - failed to build auth models for the public queries with %v", err)
 		return nil
 	}
 
@@ -56,7 +56,11 @@ func NewPublicQueriesRouter(
 		debugLevel:  debugLevel,
 	}
 
-	publicQueriesRouter.setupRoutes(queryMethod2AuthModel_Mapping)
+	err = publicQueriesRouter.setupRoutes(queryMethod2AuthModel_Mapping)
+	if err != nil {
+		service.Logger.Errorf("queryservice public queries router - failed to setup routes with: %v", err)
+		return nil
+	}
 
 	return publicQueriesRouter
 }
@@ -64,7 +68,7 @@ func NewPublicQueriesRouter(
 func buildAuthModelsForQueries(
 	service *serviceBase.ServiceBase,
 	store *implementations.BaseQueryStore,
-	policyTranslation *models.QueryFileAuthPoliciesList) map[int]*security.AuthModel {
+	policyTranslation *models.QueryFileAuthPoliciesList) (map[int]*security.AuthModel, error) {
 
 	// loop through all methods in the query store and build the auth models
 	// for each method, check if the authRequired string is in the policyTranslation map
@@ -81,9 +85,10 @@ func buildAuthModelsForQueries(
 		for _, authRequired := range method.AuthRequired {
 			queryFilePolicy, ok := (*policyTranslation)[authRequired]
 			if !ok {
-				service.Logger.Infof("queryservice queries router - the AuthRequired string <%s> was not found in the provided map of auth policy translations for method %d with query %s",
+				errorMsg := fmt.Errorf("queryservice queries router - the AuthRequired string <%s> was not found in the provided map of auth policy translations for method %d with query %s",
 					authRequired, methodIndex, method.Query)
-				return nil
+				service.Logger.Errorf(errorMsg.Error())
+				return nil, errorMsg
 			}
 
 			if authModelInProgress == nil {
@@ -94,15 +99,17 @@ func buildAuthModelsForQueries(
 					queryFilePolicy.ApprovedList,
 				)
 				if err != nil {
-					// log the error and fail hard so forced to deal with
-					service.Logger.Infof("queryservice queries router - the auth model provided for method %d with query %s failed with: %v", methodIndex, method.Query, err)
-					return nil
+					// CONSIDER: Should I just do a fatalf fail hard so forced to deal with?
+					errorMsg := fmt.Errorf("queryservice queries router - the auth model provided for method %d with query %s failed with: %v", methodIndex, method.Query, err)
+					service.Logger.Errorf(errorMsg.Error())
+					return nil, errorMsg
 				}
 			} else {
 				err = authModelInProgress.AddPolicy(queryFilePolicy.Realm, queryFilePolicy.AuthType, queryFilePolicy.Timeout, queryFilePolicy.ApprovedList)
 				if err != nil {
-					service.Logger.Infof("queryservice queries router - the call to add an additional policy to the authmodel for method %d with query %s failed with: %v", methodIndex, method.Query, err)
-					return nil
+					errorMsg := fmt.Errorf("queryservice queries router - the call to add an additional policy to the authmodel for method %d with query %s failed with: %v", methodIndex, method.Query, err)
+					service.Logger.Errorf(errorMsg.Error())
+					return nil, errorMsg
 				}
 			}
 		}
@@ -110,11 +117,11 @@ func buildAuthModelsForQueries(
 		queryMethod2AuthModel_Mapping[methodIndex] = authModelInProgress
 		authModelInProgress = nil
 	}
-	return queryMethod2AuthModel_Mapping
+	return queryMethod2AuthModel_Mapping, nil
 }
 
 // TODO: make this return an error vs call Fatalf
-func (s *PublicQueriesRouter) setupRoutes(method2AuthModelMap map[int]*security.AuthModel) {
+func (s *PublicQueriesRouter) setupRoutes(method2AuthModelMap map[int]*security.AuthModel) error {
 	// loop through all methods in the query store and build the auth models
 	var routeString string
 	for methodIndex, method := range s.store.Methods {
@@ -128,12 +135,13 @@ func (s *PublicQueriesRouter) setupRoutes(method2AuthModelMap map[int]*security.
 	// now register the non-database routes (TODO: move this to HealthCheckRouter)
 	authModel, err := s.NewAuthModel(security.NO_REALM, security.NO_AUTH, security.NO_EXPIRY, nil)
 	if err != nil {
-		s.Logger.Fatalf("queryservice public queries router - failed to initialize AuthModel in default PublicQueriesRouter for query service: %v", err)
-		return
+		return fmt.Errorf("queryservice public queries router - failed to initialize AuthModel in default PublicQueriesRouter for query service: %v", err)
 	}
 
 	routeString = "/v1/public/queries"
 	s.RegisterRoute(constants.HTTP_GET, routeString, authModel, s.handleGetQueryList)
+
+	return nil
 }
 
 func (s *PublicQueriesRouter) handleGetQueryList(w http.ResponseWriter, r *http.Request) {
@@ -149,7 +157,6 @@ func (s *PublicQueriesRouter) handleGetQueryList(w http.ResponseWriter, r *http.
 
 	jsonResults, err := s.store.GetQueryList()
 	if err != nil {
-		// TODO_PORT: log the error, but probably don't expose it to the client
 		s.Logger.Info("queryservice public queries router - Failed to run query: ", err)
 
 		writeHttpResponse(w, http.StatusBadRequest, []byte(err.Error()))
@@ -167,7 +174,8 @@ func (s *PublicQueriesRouter) handlePublicQueries(w http.ResponseWriter, r *http
 	}()
 
 	params := getURLPathParams(s.Logger, "/v1/public/queries/", r)
-	queryParams := getQueryParams(r)
+	// TODD: test the nil case here (params)
+	queryParams := s.GetQueryParams(r)
 
 	if s.debugLevel > 0 {
 		s.Logger.Infof("queryservice public queries router - incoming request to run the query: %s/%s", params["serviceName"], params["methodName"])

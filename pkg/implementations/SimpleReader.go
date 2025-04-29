@@ -7,22 +7,19 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sirupsen/logrus"
 )
 
 type SimpleReader struct {
 	logger     *logrus.Logger
-	conn       *pgxpool.Pool
 	rows       pgx.Rows
 	debugLevel int
 }
 
 // NewSimpleReader initializes a new SimpleReader
-func NewSimpleReader(rows pgx.Rows, conn *pgxpool.Pool, logger *logrus.Logger, debugLevel int) *SimpleReader {
+func NewSimpleReader(rows pgx.Rows, logger *logrus.Logger, debugLevel int) *SimpleReader {
 	return &SimpleReader{
 		rows:       rows,
-		conn:       conn,
 		logger:     logger,
 		debugLevel: debugLevel,
 	}
@@ -31,7 +28,6 @@ func NewSimpleReader(rows pgx.Rows, conn *pgxpool.Pool, logger *logrus.Logger, d
 // Release closes the connection and rows when done
 func (sr *SimpleReader) Release() {
 	sr.rows.Close()
-	sr.conn.Close()
 }
 
 // GetFieldCount returns the number of columns in the result set
@@ -46,11 +42,6 @@ func (sr *SimpleReader) GetFieldName(column int) string {
 
 // GetFieldValue reads the value of a specific column and adds it to the column dictionary
 func (sr *SimpleReader) GetFieldValue(columnDictionary map[string]interface{}, column int) error {
-	// TODO_PORT: Check if the column is NULL
-	//	if sr.rows.IsDBNull(column) {
-	//		columnDictionary[sr.GetFieldName(column)] = nil
-	//		return nil
-	//	}
 
 	values, err := sr.rows.Values()
 	if err != nil {
@@ -66,8 +57,12 @@ func (sr *SimpleReader) GetFieldValue(columnDictionary map[string]interface{}, c
 		sr.logger.Infof("val: %v\n", values[column])
 	}
 
-	// TODO_PORT: Add support/un-support for more data types
-	//
+	// TODO: Add support/un-support for more data types
+	// TODO: are nulls (from nullable columns) being handled correctly? if not, add something like this:
+	//  if values[column] == nil {
+	//	  columnDictionary[sr.GetFieldName(column)] = nil
+	//	  return nil
+	//  }
 	switch fieldType {
 
 	// explicitly not supported list (so far)
@@ -87,15 +82,21 @@ func (sr *SimpleReader) GetFieldValue(columnDictionary map[string]interface{}, c
 
 	// things that require special handling
 	case pgtype.UUIDOID:
-		uuidArray := values[column].([16]uint8)
+		uuidArray, ok := values[column].([16]uint8)
+		if !ok {
+			return fmt.Errorf("queryservice store - invalid UUID value %v detected", values[column])
+		}
+
 		uuidValue, err := uuid.FromBytes(uuidArray[:])
 		if err != nil {
 			return fmt.Errorf("queryservice store - unable to convert stored uuid value to a string equivalent: %v\n", err)
 		}
 		columnDictionary[sr.GetFieldName(column)] = uuidValue.String()
 
-	// optimistic default case for things not tested so far
+	// optimistic default case for things not tested so far. This is questionable, but so far
+	// the default behavior has worked very well, so leaving it for now.
 	default:
+		sr.logger.Infof("queryservice store - default assignment of field type used in GetFieldValue(). Consider adding explicit case for this type: %v", fieldType)
 		columnDictionary[sr.GetFieldName(column)] = values[column]
 	}
 
@@ -125,10 +126,9 @@ func (sr *SimpleReader) ProcessResponse() ([]map[string]interface{}, error) {
 	return result, nil
 }
 
-// PrintAllResults prints all rows for debugging purposes
+// PrintAllResults prints all rows for debugging purposes (unused currently)
 func (sr *SimpleReader) PrintAllResults(logger *log.Logger) error {
 
-	// TODO_PORT: fix this recursive call (it was showing sr.rows.Next as recursive)?
 	for sr.rows.Next() {
 		values, err := sr.rows.Values()
 		if err != nil {
@@ -143,9 +143,3 @@ func (sr *SimpleReader) PrintAllResults(logger *log.Logger) error {
 	}
 	return sr.rows.Err()
 }
-
-// TODO_PORT: add support somewhere for more functionality of pgx pools
-// - stats to see if the pool is being used correctly (e.g. if connections are being released)
-// - error handling for when the pool is full
-// - maybe explicit allowed connections for the pool
-// - add support for more data types in GetFieldValue

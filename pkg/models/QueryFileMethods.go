@@ -48,9 +48,11 @@ func (m *Method) GetQueryParameterNames(onlyRequired bool) []string {
 	return response
 }
 
-func (m *Method) GetMapOfParametersForQueryCall(callParams map[string]string) pgx.NamedArgs {
+// GetMapOfParametersForQueryCall converts the provided call parameters into a map
+// suitable for use in a PostgreSQL query. It handles array types by unmarshalling
+// JSON strings into Go slices.
+func (m *Method) GetMapOfParametersForQueryCall(callParams map[string]string) (pgx.NamedArgs, error) {
 	// Create a map of parameters for the query call
-	//	params := make(map[string]any)
 	paramMap := pgx.NamedArgs{}
 	for _, queryParam := range m.QueryParameters {
 		switch queryParam.Type {
@@ -59,7 +61,7 @@ func (m *Method) GetMapOfParametersForQueryCall(callParams map[string]string) pg
 			var stringArray []string
 			err := json.Unmarshal([]byte(callParams[queryParam.Name]), &stringArray)
 			if err != nil {
-				fmt.Println(err) // TODO_PORT: format the error message here and return nil, err
+				return nil, fmt.Errorf("queryservice models - error unmarshalling array of strings for parameter %s: %v", queryParam.Name, err)
 			}
 			paramMap[queryParam.Name] = stringArray
 
@@ -68,7 +70,7 @@ func (m *Method) GetMapOfParametersForQueryCall(callParams map[string]string) pg
 			var integerArray []int
 			err := json.Unmarshal([]byte(callParams[queryParam.Name]), &integerArray)
 			if err != nil {
-				fmt.Println(err)
+				return nil, fmt.Errorf("queryservice models - error unmarshalling array of integers for parameter %s: %v", queryParam.Name, err)
 			}
 			paramMap[queryParam.Name] = integerArray
 
@@ -77,20 +79,24 @@ func (m *Method) GetMapOfParametersForQueryCall(callParams map[string]string) pg
 			var dateArray []pgtype.Date
 			err := json.Unmarshal([]byte(callParams[queryParam.Name]), &dateArray)
 			if err != nil {
-				fmt.Println(err)
+				return nil, fmt.Errorf("queryservice models - error unmarshalling array of dates for parameter %s: %v", queryParam.Name, err)
 			}
 			paramMap[queryParam.Name] = dateArray
 
 		default:
 			// Add the parameter to the map
+			// WARNING: using the default here is based on the knowledge that all allowed types may be
+			// safely assigned below. This must be reconsidered if new types are added to the DataType enum.
 			paramMap[queryParam.Name] = callParams[queryParam.Name]
 		}
 	}
 
-	return paramMap
+	return paramMap, nil
 }
 
-// GetQueryStringInCallableFormat returns the query string with query parameter placeholders in PostgreSQL format.
+// GetQueryStringInCallableFormat returns the query string with query parameter placeholders
+// in PostgreSQL format.
+// It replaces the placeholders in the query string with '@' notation for PostgreSQL.
 func (m *Method) GetQueryStringInCallableFormat() string {
 	// Start with the original query
 	pgQuery := m.Query
@@ -102,10 +108,12 @@ func (m *Method) GetQueryStringInCallableFormat() string {
 	return pgQuery
 }
 
-// GetParameterNamesFromQueryString extracts the parameter names from the query string using regex.
+// GetParameterNamesFromQueryString extracts the parameter names from the query string
+// using regex. Freaking regex voodoo.  You swear you'll never use it, then... ;)
 func (m *Method) GetParameterNamesFromQueryString() []string {
 	paramsInQuery := make(map[string]struct{})
-	pattern := `\{([a-zA-Z0-9]*)\}`
+	pattern := `\{([a-zA-Z0-9](?:[a-zA-Z0-9_-]*[a-zA-Z0-9])?)\}` // TESTING this as a better pattern
+	//	pattern := `\{([a-zA-Z0-9]*)\}`
 
 	// Compile regex pattern
 	re := regexp.MustCompile(pattern)
@@ -148,7 +156,7 @@ func (m *Method) ValidateQueryParamsWithQuery(logger *logrus.Logger) bool {
 					"service": m.ServiceName,
 					"method":  m.MethodName,
 					"param":   q.Name,
-				}).Info("queryservice models - found query definition with param name inconsistency in the queries file.")
+				}).Error("queryservice models - found query definition with param name inconsistency in the queries file.")
 				validParams = false
 			}
 		}
@@ -178,6 +186,6 @@ func (m *Method) ValidateQueryParamsWithQuery(logger *logrus.Logger) bool {
 		"query":    m.Query,
 		"expected": len(m.QueryParameters),
 		"found":    len(paramsInQueryString),
-	}).Info("queryservice models - found query definition with inconsistent param count in the queries file.")
+	}).Error("queryservice models - found query definition with inconsistent param count in the queries file.")
 	return false
 }

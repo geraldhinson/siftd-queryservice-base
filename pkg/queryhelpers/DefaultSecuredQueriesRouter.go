@@ -37,19 +37,19 @@ func NewSecuredQueriesRouter(
 
 	if _, err := os.Stat(path + constants.QUERIES_FILE); errors.Is(err, os.ErrNotExist) {
 		// file does not exist
-		service.Logger.Infof("queryservice secured queries router - the secured queries file <%s> does not exist. Shutting down.", path+constants.QUERIES_FILE)
+		service.Logger.Errorf("queryservice secured queries router - the secured queries file <%s> does not exist. Shutting down.", path+constants.QUERIES_FILE)
 		return nil
 	}
 
 	store, err := implementations.NewPrivateQueryStore(service.Configuration, service.Logger)
 	if err != nil {
-		service.Logger.Infof("queryservice secured queries router - failed to initialize the query store with: %v", err)
+		service.Logger.Errorf("queryservice secured queries router - failed to initialize the query store with: %v", err)
 		return nil
 	}
 
-	queryMethod2AuthModel_Mapping := buildAuthModelsForQueries(service, store, policyTranslation)
-	if queryMethod2AuthModel_Mapping == nil {
-		service.Logger.Infof("queryservice secured queries router - failed to build auth models for secured queries with: %v", err)
+	queryMethod2AuthModel_Mapping, err := buildAuthModelsForQueries(service, store, policyTranslation)
+	if err != nil {
+		service.Logger.Errorf("queryservice secured queries router - failed to build auth models for secured queries with: %v", err)
 		return nil
 	}
 
@@ -58,13 +58,18 @@ func NewSecuredQueriesRouter(
 		store:       store,
 		debugLevel:  debugLevel,
 	}
-	securedQueriesRouter.setupRoutes(queryMethod2AuthModel_Mapping)
+
+	err = securedQueriesRouter.setupRoutes(queryMethod2AuthModel_Mapping)
+	if err != nil {
+		service.Logger.Errorf("queryservice secured queries router - failed to setup routes for secured queries with: %v", err)
+		return nil
+	}
 
 	return securedQueriesRouter
 }
 
 // TODO: make return an error vs calling Fatalf
-func (s *SecuredQueriesRouter) setupRoutes(method2AuthModelMap map[int]*security.AuthModel) {
+func (s *SecuredQueriesRouter) setupRoutes(method2AuthModelMap map[int]*security.AuthModel) error {
 
 	// loop through all methods in the query store and build the auth models
 	var routeString string
@@ -85,13 +90,13 @@ func (s *SecuredQueriesRouter) setupRoutes(method2AuthModelMap map[int]*security
 	// now register the non-database routes (TODO: move this to HealthCheckRouter and maybe rename that to Mgmt..?)
 	authModel, err := s.NewAuthModel(security.NO_REALM, security.NO_AUTH, security.NO_EXPIRY, nil)
 	if err != nil {
-		s.Logger.Fatalf("queryservice secured queries router - failed to initialize AuthModel in default PublicQueriesRouter for query service: %v", err)
-		return
+		return fmt.Errorf("queryservice secured queries router - failed to initialize AuthModel in default PublicQueriesRouter for query service: %v", err)
 	}
 
 	routeString = "/v1/queries"
 	s.RegisterRoute(constants.HTTP_GET, routeString, authModel, s.handleGetQueryList)
 
+	return nil
 }
 
 func (s *SecuredQueriesRouter) handleGetQueryList(w http.ResponseWriter, r *http.Request) {
@@ -107,7 +112,6 @@ func (s *SecuredQueriesRouter) handleGetQueryList(w http.ResponseWriter, r *http
 
 	jsonResults, err := s.store.GetQueryList()
 	if err != nil {
-		// TODO_PORT: log the error, but probably don't expose it to the client
 		s.Logger.Info("queryservice secured queries router - Failed to run query: ", err)
 
 		writeHttpResponse(w, http.StatusBadRequest, []byte(err.Error()))
@@ -130,7 +134,12 @@ func (s *SecuredQueriesRouter) handleIdentityRequiredQueries(w http.ResponseWrit
 
 	//	params := mux.Vars(r)
 	urlParams := getURLPathParams(s.Logger, "/queries/", r)
-	queryParams := getQueryParams(r)
+	if urlParams == nil {
+		s.Logger.Infof("queryservice secured queries router - Invalid URL path detected on incoming request - unable to find prefix in path: %s\n", r.URL.Path)
+		writeHttpResponse(w, http.StatusBadRequest, []byte("Invalid URL path detected on incoming request - unable to find prefix in path"))
+		return
+	}
+	queryParams := s.GetQueryParams(r)
 
 	// Add ownerId to query params because all user queries require it in their where clause
 	queryParams["ownerId"] = urlParams["identityId"]
@@ -150,7 +159,8 @@ func (s *SecuredQueriesRouter) handleNonIdentityRequiredQueries(w http.ResponseW
 	}
 
 	urlParams := getURLPathParams(s.Logger, "/queries/", r)
-	queryParams := getQueryParams(r)
+	// TODO: check if urlParams is nil and causes a problem if so
+	queryParams := s.GetQueryParams(r)
 
 	s.baseQueryHandler(w, r, urlParams, queryParams)
 }
@@ -206,15 +216,4 @@ func getURLPathParams(logger *logrus.Logger, pathContains string, r *http.Reques
 		logger.Infof("queryservice queries router - Invalid URL path detected on incoming request - unable to find prefix in path: %s\n", r.URL.Path)
 		return nil
 	}
-}
-
-// TODO_PORT: (didn't I move this already? Making note to check.)This should probably be in a separate file (and package) for reuse by other controllers and services
-func getQueryParams(r *http.Request) map[string]string {
-	queryParams := make(map[string]string)
-	for key, values := range r.URL.Query() {
-		if len(values) > 0 {
-			queryParams[key] = values[0]
-		}
-	}
-	return queryParams
 }

@@ -36,13 +36,13 @@ func NewHealthCheckRouter(
 
 	store, err := implementations.NewBaseQueryStore(service.Configuration, service.Logger, "healthcheck:skip-load")
 	if err != nil {
-		service.Logger.Info("queryservice healthcheck router - failed to initialize query store: ", err)
+		service.Logger.Error("queryservice healthcheck router - failed to initialize query store: ", err)
 		return nil
 	}
 
 	authModel, err := service.NewAuthModel(realm, authType, timeout, approved)
 	if err != nil {
-		service.Logger.Info("queryservice healthcheck router - failed to initialize AuthModel with: ", err)
+		service.Logger.Error("queryservice healthcheck router - failed to initialize AuthModel with: ", err)
 		return nil
 	}
 
@@ -51,6 +51,7 @@ func NewHealthCheckRouter(
 		store:       store,
 		debugLevel:  debugLevel,
 	}
+
 	healthCheckRouter.setupRoutes(authModel)
 
 	return healthCheckRouter
@@ -99,7 +100,7 @@ func (h *HealthCheckRouter) GetHealthStandalone(w http.ResponseWriter, r *http.R
 }
 
 func (h *HealthCheckRouter) GetListOfCalledServices(health *serviceBase.HealthStatus) error {
-	// TODO: implement this method
+
 	calledServices := h.Configuration.GetString(constants.CALLED_SERVICES)
 	if calledServices == "" {
 		return fmt.Errorf("queryservice healthcheck router - called services not defined in env var: %s", constants.CALLED_SERVICES)
