@@ -103,7 +103,9 @@ func (s *SecuredQueriesRouter) handleGetQueryList(w http.ResponseWriter, r *http
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		s.Logger.Infof("queryservice secured queries router - Elapsed time for request: %v", elapsed)
+		if s.debugLevel > 0 {
+			s.Logger.Infof("queryservice secured queries router - Elapsed time for request: %v", elapsed)
+		}
 	}()
 
 	if s.debugLevel > 0 {
@@ -125,7 +127,9 @@ func (s *SecuredQueriesRouter) handleIdentityRequiredQueries(w http.ResponseWrit
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		s.Logger.Infof("queryservice secured queries router - Elapsed time for request: %v", elapsed)
+		if s.debugLevel > 0 {
+			s.Logger.Infof("queryservice secured queries router - Elapsed time for request: %v", elapsed)
+		}
 	}()
 
 	if s.debugLevel > 0 {
@@ -151,7 +155,9 @@ func (s *SecuredQueriesRouter) handleNonIdentityRequiredQueries(w http.ResponseW
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		s.Logger.Infof("queryservice secured queries router - Elapsed time for request: %v", elapsed)
+		if s.debugLevel > 0 {
+			s.Logger.Infof("queryservice secured queries router - Elapsed time for request: %v", elapsed)
+		}
 	}()
 
 	if s.debugLevel > 0 {

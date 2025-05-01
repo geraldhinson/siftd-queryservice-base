@@ -148,7 +148,9 @@ func (s *PublicQueriesRouter) handleGetQueryList(w http.ResponseWriter, r *http.
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		s.Logger.Infof("queryservice public queries router - Elapsed time for request: %v", elapsed)
+		if s.debugLevel > 0 {
+			s.Logger.Infof("queryservice public queries router - Elapsed time for request: %v", elapsed)
+		}
 	}()
 
 	if s.debugLevel > 0 {
@@ -170,7 +172,9 @@ func (s *PublicQueriesRouter) handlePublicQueries(w http.ResponseWriter, r *http
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		s.Logger.Infof("queryservice public queries router - Elapsed time for request: %v", elapsed)
+		if s.debugLevel > 0 {
+			s.Logger.Infof("queryservice public queries router - Elapsed time for request: %v", elapsed)
+		}
 	}()
 
 	params := getURLPathParams(s.Logger, "/v1/public/queries/", r)

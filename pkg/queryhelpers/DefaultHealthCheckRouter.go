@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	sbconstants "github.com/geraldhinson/siftd-base/pkg/constants"
 	"github.com/geraldhinson/siftd-base/pkg/security"
@@ -65,6 +66,14 @@ func (h *HealthCheckRouter) setupRoutes(authModel *security.AuthModel) {
 }
 
 func (h *HealthCheckRouter) GetHealthStandalone(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		if h.debugLevel > 0 {
+			h.Logger.Infof("queryservice healthcheck router - Elapsed time for request: %v", elapsed)
+		}
+	}()
+
 	var health = serviceBase.HealthStatus{
 		Status:           sbconstants.HEALTH_STATUS_HEALTHY,
 		DependencyStatus: map[string]string{}}

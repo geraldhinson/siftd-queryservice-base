@@ -225,8 +225,8 @@ func (store *BaseQueryStore) RunStandAloneQuery(
 		return nil, fmt.Errorf("queryservice store - error creating parameter map for query: %w", err)
 	}
 
-	store.logger.Info("queryservice store - Query: ", query)
 	if store.debugLevel > 0 {
+		store.logger.Info("queryservice store - Query: ", query)
 		store.logger.Info("queryservice store - Query params: ", paramMap)
 	}
 
