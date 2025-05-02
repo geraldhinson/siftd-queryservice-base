@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/geraldhinson/siftd-queryservice-base/pkg/constants"
 	"github.com/geraldhinson/siftd-queryservice-base/pkg/models"
@@ -80,6 +81,11 @@ func NewBaseQueryStore(configuration *viper.Viper, logger *logrus.Logger, fileNa
 	rootCtx, cancel := context.WithCancel(context.Background())
 	store.rootCtx = &rootCtx
 	store.cancel = &cancel
+
+	connConfig.MaxConnIdleTime = 60 * time.Second
+	connConfig.MaxConnLifetime = 60 * time.Second
+	connConfig.MaxConns = 15
+
 	//	defer cancel()
 
 	store.dbPool, err = pgxpool.NewWithConfig(*store.rootCtx, connConfig)
@@ -129,20 +135,6 @@ func (store *BaseQueryStore) loadQueries(queryFile string) error {
 		} else {
 			store.logger.Infof("queryservice store - query params validation failed for method: %s", m.MethodName)
 		}
-	}
-
-	return nil
-}
-
-func (store *BaseQueryStore) HealthCheck() error {
-	// Verify the connection
-	err := store.dbPool.Ping(*store.rootCtx)
-	if err != nil {
-		return fmt.Errorf("queryservice store - unable to ping database in GetHealth(): %w", err)
-	}
-
-	if store.debugLevel > 0 {
-		store.logger.Info("queryservice store - HealthCheck successfully connected to database")
 	}
 
 	return nil
@@ -270,16 +262,34 @@ func (store *BaseQueryStore) RunStandAloneQuery(
 	return jsonResults, nil // Replace with actual response from query execution
 }
 
+func (store *BaseQueryStore) HealthCheck() error {
+	store.monitorPoolStats()
+
+	// Verify the connection
+	err := store.dbPool.Ping(*store.rootCtx)
+	if err != nil {
+		return fmt.Errorf("queryservice store - unable to ping database in GetHealth(): %w", err)
+	}
+
+	if store.debugLevel > 0 {
+		store.logger.Info("queryservice store - HealthCheck successfully connected to database")
+	}
+
+	return nil
+}
+
 func (store *BaseQueryStore) monitorPoolStats() {
 	stats := store.dbPool.Stat()
 	statsMap := make(map[string]int)
 
-	statsMap["queryservice store - total_connections"] = int(stats.TotalConns())
-	statsMap["queryservice store - acquired_connections"] = int(stats.AcquiredConns())
-	statsMap["queryservice store - idle_connections"] = int(stats.IdleConns())
-	statsMap["queryservice store - max_connections"] = int(stats.MaxConns())
+	statsMap["total_connections"] = int(stats.TotalConns())
+	statsMap["acquired_connections"] = int(stats.AcquiredConns())
+	statsMap["idle_connections"] = int(stats.IdleConns())
+	statsMap["max_connections"] = int(stats.MaxConns())
+	statsMap["max_connection_lifetime"] = int(store.dbPool.Config().MaxConnLifetime.Seconds())
+	statsMap["max_connection_idle_time"] = int(store.dbPool.Config().MaxConnIdleTime.Seconds())
 
-	store.logger.Info("Pool stats", statsMap)
+	store.logger.Info("queryservice store - Pool stats", statsMap)
 }
 
 /* TODO: Implement this if needed
